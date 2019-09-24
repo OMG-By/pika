@@ -3,28 +3,26 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include "slash/include/slash_string.h"
 #include "include/pika_set.h"
-#include "include/pika_server.h"
 
-extern PikaServer *g_pika_server;
+#include "slash/include/slash_string.h"
 
-void SAddCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SAddCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSAdd);
     return;
   }
-  key_ = argv[1];
-  PikaCmdArgsType::const_iterator iter = argv.begin();
+  key_ = argv_[1];
+  PikaCmdArgsType::iterator iter = argv_.begin();
   iter++; 
   iter++;
-  members_.assign(iter, argv.end());
+  members_.assign(iter, argv_.end());
   return;
 }
 
-void SAddCmd::Do() {
+void SAddCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t count = 0;
-  rocksdb::Status s = g_pika_server->db()->SAdd(key_, members_, &count);
+  rocksdb::Status s = partition->db()->SAdd(key_, members_, &count);
   if (!s.ok()) {
     res_.SetRes(CmdRes::kErrOther, s.ToString());
     return;
@@ -33,18 +31,18 @@ void SAddCmd::Do() {
   return;
 }
 
-void SPopCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SPopCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSPop);
     return;
   }
-  key_ = argv[1];
+  key_ = argv_[1];
   return;
 }
 
-void SPopCmd::Do() {
+void SPopCmd::Do(std::shared_ptr<Partition> partition) {
   std::string member;
-  rocksdb::Status s = g_pika_server->db()->SPop(key_, &member);
+  rocksdb::Status s = partition->db()->SPop(key_, &member);
   if (s.ok()) {
     res_.AppendStringLen(member.size());
     res_.AppendContent(member);
@@ -56,18 +54,18 @@ void SPopCmd::Do() {
   return;
 }
 
-void SCardCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SCardCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSCard);
     return;
   }
-  key_ = argv[1];
+  key_ = argv_[1];
   return;
 }
 
-void SCardCmd::Do() {
+void SCardCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t card = 0;
-  rocksdb::Status s = g_pika_server->db()->SCard(key_, &card);
+  rocksdb::Status s = partition->db()->SCard(key_, &card);
   if (s.ok() || s.IsNotFound()) {
     res_.AppendInteger(card);
   } else {
@@ -76,18 +74,18 @@ void SCardCmd::Do() {
   return;
 }
 
-void SMembersCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SMembersCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSMembers);
     return;
   }
-  key_ = argv[1];
+  key_ = argv_[1];
   return;
 }
 
-void SMembersCmd::Do() {
+void SMembersCmd::Do(std::shared_ptr<Partition> partition) {
   std::vector<std::string> members;
-  rocksdb::Status s = g_pika_server->db()->SMembers(key_, &members);
+  rocksdb::Status s = partition->db()->SMembers(key_, &members);
   if (s.ok() || s.IsNotFound()) {
     res_.AppendArrayLen(members.size());
     for (const auto& member : members) {
@@ -100,19 +98,19 @@ void SMembersCmd::Do() {
   return;
 }
 
-void SScanCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SScanCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSScan);
     return;
   }
-  key_ = argv[1];
-  if (!slash::string2l(argv[2].data(), argv[2].size(), &cursor_)) {
+  key_ = argv_[1];
+  if (!slash::string2l(argv_[2].data(), argv_[2].size(), &cursor_)) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSScan);
     return;
   }
-  size_t argc = argv.size(), index = 3;
+  size_t argc = argv_.size(), index = 3;
   while (index < argc) {
-    std::string opt = argv[index];
+    std::string opt = argv_[index];
     if (!strcasecmp(opt.data(), "match")
       || !strcasecmp(opt.data(), "count")) {
       index++;
@@ -121,8 +119,8 @@ void SScanCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_i
         return;
       }
       if (!strcasecmp(opt.data(), "match")) {
-        pattern_ = argv[index];
-      } else if (!slash::string2l(argv[index].data(), argv[index].size(), &count_)) {
+        pattern_ = argv_[index];
+      } else if (!slash::string2l(argv_[index].data(), argv_[index].size(), &count_)) {
         res_.SetRes(CmdRes::kInvalidInt);
         return;
       }
@@ -139,10 +137,10 @@ void SScanCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_i
   return;
 }
 
-void SScanCmd::Do() {
+void SScanCmd::Do(std::shared_ptr<Partition> partition) {
   int64_t next_cursor = 0;
   std::vector<std::string> members;
-  rocksdb::Status s = g_pika_server->db()->SScan(key_, cursor_, pattern_, count_, &members, &next_cursor);
+  rocksdb::Status s = partition->db()->SScan(key_, cursor_, pattern_, count_, &members, &next_cursor);
 
   if (s.ok() || s.IsNotFound()) {
     res_.AppendContent("*2");
@@ -161,38 +159,38 @@ void SScanCmd::Do() {
   return;
 }
 
-void SRemCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SRemCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSMembers);
     return;
   }
-  key_ = argv[1];
-  PikaCmdArgsType::const_iterator iter = argv.begin();
+  key_ = argv_[1];
+  PikaCmdArgsType::iterator iter = argv_.begin();
   iter++;
-  members_.assign(++iter, argv.end());
+  members_.assign(++iter, argv_.end());
   return;
 }
 
-void SRemCmd::Do() {
+void SRemCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t count = 0;
-  rocksdb::Status s = g_pika_server->db()->SRem(key_, members_, &count);
+  rocksdb::Status s = partition->db()->SRem(key_, members_, &count);
   res_.AppendInteger(count);
   return;
 }
 
-void SUnionCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SUnionCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSUnion);
     return;
   }
-  PikaCmdArgsType::const_iterator iter = argv.begin();
-  keys_.assign(++iter, argv.end());
+  PikaCmdArgsType::iterator iter = argv_.begin();
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SUnionCmd::Do() {
+void SUnionCmd::Do(std::shared_ptr<Partition> partition) {
   std::vector<std::string> members;
-  g_pika_server->db()->SUnion(keys_, &members);
+  partition->db()->SUnion(keys_, &members);
   res_.AppendArrayLen(members.size());
   for (const auto& member : members) {
     res_.AppendStringLen(member.size());
@@ -201,21 +199,21 @@ void SUnionCmd::Do() {
   return;
 }
 
-void SUnionstoreCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SUnionstoreCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSUnionstore);
     return;
   }
-  dest_key_ = argv[1];
-  PikaCmdArgsType::const_iterator iter = argv.begin();
+  dest_key_ = argv_[1];
+  PikaCmdArgsType::iterator iter = argv_.begin();
   iter++;
-  keys_.assign(++iter, argv.end());
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SUnionstoreCmd::Do() {
+void SUnionstoreCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t count = 0;
-  rocksdb::Status s = g_pika_server->db()->SUnionstore(dest_key_, keys_, &count);
+  rocksdb::Status s = partition->db()->SUnionstore(dest_key_, keys_, &count);
   if (s.ok()) {
     res_.AppendInteger(count);
   } else {
@@ -224,19 +222,19 @@ void SUnionstoreCmd::Do() {
   return;
 }
 
-void SInterCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SInterCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSInter);
     return;
   }
-  PikaCmdArgsType::const_iterator iter = argv.begin();
-  keys_.assign(++iter, argv.end());
+  PikaCmdArgsType::iterator iter = argv_.begin();
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SInterCmd::Do() {
+void SInterCmd::Do(std::shared_ptr<Partition> partition) {
   std::vector<std::string> members;
-  g_pika_server->db()->SInter(keys_, &members);
+  partition->db()->SInter(keys_, &members);
   res_.AppendArrayLen(members.size());
   for (const auto& member : members) {
     res_.AppendStringLen(member.size());
@@ -245,21 +243,21 @@ void SInterCmd::Do() {
   return;
 }
 
-void SInterstoreCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SInterstoreCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSInterstore);
     return;
   }
-  dest_key_ = argv[1];
-  PikaCmdArgsType::const_iterator iter = argv.begin();
+  dest_key_ = argv_[1];
+  PikaCmdArgsType::iterator iter = argv_.begin();
   iter++;
-  keys_.assign(++iter, argv.end());
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SInterstoreCmd::Do() {
+void SInterstoreCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t count = 0;
-  rocksdb::Status s = g_pika_server->db()->SInterstore(dest_key_, keys_, &count);
+  rocksdb::Status s = partition->db()->SInterstore(dest_key_, keys_, &count);
   if (s.ok()) {
     res_.AppendInteger(count);
   } else {
@@ -268,19 +266,19 @@ void SInterstoreCmd::Do() {
   return;
 }
 
-void SIsmemberCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SIsmemberCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSIsmember);
     return;
   }
-  key_ = argv[1];
-  member_ = argv[2];
+  key_ = argv_[1];
+  member_ = argv_[2];
   return;
 }
 
-void SIsmemberCmd::Do() {
+void SIsmemberCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t is_member = 0;
-  g_pika_server->db()->SIsmember(key_, member_, &is_member);
+  partition->db()->SIsmember(key_, member_, &is_member);
   if (is_member) {
     res_.AppendContent(":1");
   } else {
@@ -288,19 +286,19 @@ void SIsmemberCmd::Do() {
   }
 }
 
-void SDiffCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SDiffCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSDiff);
     return;
   }
-  PikaCmdArgsType::const_iterator iter = argv.begin();
-  keys_.assign(++iter, argv.end());
+  PikaCmdArgsType::iterator iter = argv_.begin();
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SDiffCmd::Do() {
+void SDiffCmd::Do(std::shared_ptr<Partition> partition) {
   std::vector<std::string> members;
-  g_pika_server->db()->SDiff(keys_, &members);
+  partition->db()->SDiff(keys_, &members);
   res_.AppendArrayLen(members.size());
   for (const auto& member : members) {
     res_.AppendStringLen(member.size());
@@ -309,21 +307,21 @@ void SDiffCmd::Do() {
   return;
 }
 
-void SDiffstoreCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SDiffstoreCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSDiffstore);
     return;
   }
-  dest_key_ = argv[1];
-  PikaCmdArgsType::const_iterator iter = argv.begin();
+  dest_key_ = argv_[1];
+  PikaCmdArgsType::iterator iter = argv_.begin();
   iter++;
-  keys_.assign(++iter, argv.end());
+  keys_.assign(++iter, argv_.end());
   return;
 }
 
-void SDiffstoreCmd::Do() {
+void SDiffstoreCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t count = 0;
-  rocksdb::Status s = g_pika_server->db()->SDiffstore(dest_key_, keys_, &count);
+  rocksdb::Status s = partition->db()->SDiffstore(dest_key_, keys_, &count);
   if (s.ok()) {
     res_.AppendInteger(count);
   } else {
@@ -331,43 +329,39 @@ void SDiffstoreCmd::Do() {
   }
 }
 
-void SMoveCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SMoveCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSMove);
     return;
   }
-  src_key_ = argv[1];
-  dest_key_ = argv[2];
-  member_ = argv[3];
+  src_key_ = argv_[1];
+  dest_key_ = argv_[2];
+  member_ = argv_[3];
   return;
 }
 
-void SMoveCmd::Do() {
+void SMoveCmd::Do(std::shared_ptr<Partition> partition) {
   int32_t res = 0;
-  rocksdb::Status s = g_pika_server->db()->SMove(src_key_, dest_key_, member_, &res);
+  rocksdb::Status s = partition->db()->SMove(src_key_, dest_key_, member_, &res);
   if (s.ok() || s.IsNotFound()) {
-    if (s.IsNotFound()){
-      res_.AppendInteger(res);
-    } else {
-      res_.AppendInteger(res);
-    }
+    res_.AppendInteger(res);
   } else {
     res_.SetRes(CmdRes::kErrOther, s.ToString());
   }
   return;
 }
 
-void SRandmemberCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info) {
-  if (!ptr_info->CheckArg(argv.size())) {
+void SRandmemberCmd::DoInitial() {
+  if (!CheckArg(argv_.size())) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSRandmember);
     return;
   }
-  key_ = argv[1];
-  if (argv.size() > 3) {
+  key_ = argv_[1];
+  if (argv_.size() > 3) {
     res_.SetRes(CmdRes::kWrongNum, kCmdNameSRandmember);
     return;
-  } else if (argv.size() == 3) {
-    if (!slash::string2l(argv[2].data(), argv[2].size(), &count_)) {
+  } else if (argv_.size() == 3) {
+    if (!slash::string2l(argv_[2].data(), argv_[2].size(), &count_)) {
       res_.SetRes(CmdRes::kInvalidInt);
     } else {
       reply_arr = true;;
@@ -376,9 +370,9 @@ void SRandmemberCmd::DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const
   return;
 }
 
-void SRandmemberCmd::Do() {
+void SRandmemberCmd::Do(std::shared_ptr<Partition> partition) {
   std::vector<std::string> members;
-  rocksdb::Status s = g_pika_server->db()->SRandmember(key_, count_, &members);
+  rocksdb::Status s = partition->db()->SRandmember(key_, count_, &members);
   if (s.ok() || s.IsNotFound()) {
     if (!reply_arr && members.size()) {
       res_.AppendStringLen(members[0].size());

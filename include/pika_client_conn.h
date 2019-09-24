@@ -6,13 +6,7 @@
 #ifndef PIKA_CLIENT_CONN_H_
 #define PIKA_CLIENT_CONN_H_
 
-#include <glog/logging.h>
-#include <atomic>
-
-#include "pink/include/pink_thread.h"
 #include "include/pika_command.h"
-
-class PikaWorkerSpecificData;
 
 class PikaClientConn: public pink::RedisConn {
  public:
@@ -22,8 +16,24 @@ class PikaClientConn: public pink::RedisConn {
     std::string* response;
   };
 
-  PikaClientConn(int fd, std::string ip_port, pink::ServerThread *server_thread,
-                 void* worker_specific_data, pink::PinkEpoll* pink_epoll,
+  // Auth related
+  class AuthStat {
+   public:
+    void Init();
+    bool IsAuthed(const std::shared_ptr<Cmd> cmd_ptr);
+    bool ChecknUpdate(const std::string& arg);
+   private:
+    enum StatType {
+      kNoAuthed = 0,
+      kAdminAuthed,
+      kLimitAuthed,
+    };
+    StatType stat_;
+  };
+
+  PikaClientConn(int fd, std::string ip_port,
+                 pink::Thread *server_thread,
+                 pink::PinkEpoll* pink_epoll,
                  const pink::HandleType& handle_type);
   virtual ~PikaClientConn() {}
 
@@ -35,28 +45,26 @@ class PikaClientConn: public pink::RedisConn {
 
   bool IsPubSub() { return is_pubsub_; }
   void SetIsPubSub(bool is_pubsub) { is_pubsub_ = is_pubsub; }
+  void SetCurrentTable(const std::string& table_name) {current_table_ = table_name;}
+
+  pink::ServerThread* server_thread() {
+    return server_thread_;
+  }
+
+  AuthStat& auth_stat() {
+    return auth_stat_;
+  }
 
  private:
   pink::ServerThread* const server_thread_;
-  CmdTable* const cmds_table_;
+  std::string current_table_;
   bool is_pubsub_;
 
   std::string DoCmd(const PikaCmdArgsType& argv, const std::string& opt);
 
-  // Auth related
-  class AuthStat {
-   public:
-    void Init();
-    bool IsAuthed(const CmdInfo* const cinfo_ptr);
-    bool ChecknUpdate(const std::string& arg);
-   private:
-    enum StatType {
-      kNoAuthed = 0,
-      kAdminAuthed,
-      kLimitAuthed,
-    };
-    StatType stat_;
-  };
+  void ProcessSlowlog(const PikaCmdArgsType& argv, uint64_t start_us);
+  void ProcessMonitor(const PikaCmdArgsType& argv);
+
   AuthStat auth_stat_;
 };
 

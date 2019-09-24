@@ -8,6 +8,7 @@
 #include <sys/resource.h>
 
 #include "slash/include/env.h"
+#include "include/pika_rm.h"
 #include "include/pika_server.h"
 #include "include/pika_command.h"
 #include "include/pika_conf.h"
@@ -19,9 +20,9 @@
 #include <gperftools/malloc_extension.h>
 #endif
 
-PikaConf *g_pika_conf;
-
+PikaConf* g_pika_conf;
 PikaServer* g_pika_server;
+PikaReplicaManager* g_pika_rm;
 
 PikaCmdTableManager* g_pika_cmd_table_manager;
 
@@ -53,7 +54,7 @@ static void PikaGlogInit() {
     FLAGS_alsologtostderr = true;
   }
   FLAGS_log_dir = g_pika_conf->log_path();
-  FLAGS_minloglevel = g_pika_conf->log_level();
+  FLAGS_minloglevel = 0;
   FLAGS_max_log_size = 1800;
   FLAGS_logbufsecs = 0;
   ::google::InitGoogleLogging("pika");
@@ -182,25 +183,30 @@ int main(int argc, char *argv[]) {
 
   PikaGlogInit();
   PikaSignalSetup();
-  InitCmdInfoTable();
 
   LOG(INFO) << "Server at: " << path;
   g_pika_server = new PikaServer();
+  g_pika_rm = new PikaReplicaManager();
   g_pika_cmd_table_manager = new PikaCmdTableManager();
 
   if (g_pika_conf->daemonize()) {
     close_std();
   }
 
+  g_pika_rm->Start();
   g_pika_server->Start();
   
   if (g_pika_conf->daemonize()) {
     unlink(g_pika_conf->pidfile().c_str());
   }
 
+  // stop PikaReplicaManager first，avoid internal threads
+  // may references to dead PikaServer
+  g_pika_rm->Stop();
+
   delete g_pika_server;
+  delete g_pika_rm;
   delete g_pika_cmd_table_manager;
-  DestoryCmdInfoTable();
   ::google::ShutdownGoogleLogging();
   delete g_pika_conf;
   

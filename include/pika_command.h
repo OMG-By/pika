@@ -6,25 +6,20 @@
 #ifndef PIKA_COMMAND_H_
 #define PIKA_COMMAND_H_
 
-#include <deque>
-#include <string>
-#include <memory>
 #include <unordered_map>
 
-#include "slash/include/slash_string.h"
 #include "pink/include/redis_conn.h"
+#include "pink/include/pink_conn.h"
+#include "slash/include/slash_string.h"
 
-#include "include/pika_binlog_transverter.h"
-
-const std::string kPikaBinlogMagic = "__PIKA_X#$SKGI";
+#include "include/pika_partition.h"
 
 //Constant for command name
 //Admin
 const std::string kCmdNameSlaveof = "slaveof";
-const std::string kCmdNameTrysync = "trysync";
+const std::string kCmdNameDbSlaveof = "dbslaveof";
 const std::string kCmdNameAuth = "auth";
 const std::string kCmdNameBgsave = "bgsave";
-const std::string kCmdNameBgsaveoff = "bgsaveoff";
 const std::string kCmdNameCompact = "compact";
 const std::string kCmdNamePurgelogsto = "purgelogsto";
 const std::string kCmdNamePing = "ping";
@@ -42,28 +37,11 @@ const std::string kCmdNameDelbackup = "delbackup";
 const std::string kCmdNameEcho = "echo";
 const std::string kCmdNameScandb = "scandb";
 const std::string kCmdNameSlowlog = "slowlog";
+const std::string kCmdNamePadding = "padding";
 #ifdef TCMALLOC_EXTENSION
 const std::string kCmdNameTcmalloc = "tcmalloc";
 #endif
-
-//Migrate slot
-const std::string kCmdNameSlotsMgrtSlot = "slotsmgrtslot";
-const std::string kCmdNameSlotsMgrtTagSlot = "slotsmgrttagslot";
-const std::string kCmdNameSlotsMgrtOne = "slotsmgrtone";
-const std::string kCmdNameSlotsMgrtTagOne = "slotsmgrttagone";
-const std::string kCmdNameSlotsInfo = "slotsinfo";
-const std::string kCmdNameSlotsHashKey = "slotshashkey";
-const std::string kCmdNameSlotsReload = "slotsreload";
-const std::string kCmdNameSlotsReloadOff = "slotsreloadoff";
-const std::string kCmdNameSlotsDel = "slotsdel";
-const std::string kCmdNameSlotsScan = "slotsscan";
-const std::string kCmdNameSlotsCleanup = "slotscleanup";
-const std::string kCmdNameSlotsCleanupOff = "slotscleanupoff";
-const std::string kCmdNameSlotsMgrtTagSlotAsync = "slotsmgrttagslot-async";
-const std::string kCmdNameSlotsMgrtSlotAsync = "slotsmgrtslot-async";
-const std::string kCmdNameSlotsMgrtExecWrapper = "slotsmgrt-exec-wrapper";
-const std::string kCmdNameSlotsMgrtAsyncStatus = "slotsmgrt-async-status";
-const std::string kCmdNameSlotsMgrtAsyncCancel = "slotsmgrt-async-cancel";
+const std::string kCmdNamePKPatternMatchDel = "pkpatternmatchdel";
 
 //Kv
 const std::string kCmdNameSet = "set";
@@ -167,6 +145,8 @@ const std::string kCmdNameZLexcount = "zlexcount";
 const std::string kCmdNameZRemrangebyrank = "zremrangebyrank";
 const std::string kCmdNameZRemrangebylex = "zremrangebylex";
 const std::string kCmdNameZRemrangebyscore = "zremrangebyscore";
+const std::string kCmdNameZPopmax = "zpopmax";
+const std::string kCmdNameZPopmin = "zpopmin";
 
 //Set
 const std::string kCmdNameSAdd = "sadd";
@@ -206,83 +186,68 @@ const std::string kCmdNamePubSub = "pubsub";
 const std::string kCmdNamePSubscribe = "psubscribe";
 const std::string kCmdNamePUnSubscribe = "punsubscribe";
 
+//Codis Slots
+const std::string kCmdNameSlotsInfo = "slotsinfo";
+const std::string kCmdNameSlotsHashKey = "slotshashkey";
+const std::string kCmdNameSlotsMgrtTagSlotAsync = "slotsmgrttagslot-async";
+const std::string kCmdNameSlotsMgrtSlotAsync = "slotsmgrtslot-async";
+const std::string kCmdNameSlotsDel = "slotsdel";
+const std::string kCmdNameSlotsScan = "slotsscan";
+const std::string kCmdNameSlotsMgrtExecWrapper = "slotsmgrt-exec-wrapper";
+const std::string kCmdNameSlotsMgrtAsyncStatus = "slotsmgrt-async-status";
+const std::string kCmdNameSlotsMgrtAsyncCancel = "slotsmgrt-async-cancel";
+const std::string kCmdNameSlotsMgrtSlot = "slotsmgrtslot";
+const std::string kCmdNameSlotsMgrtTagSlot = "slotsmgrttagslot";
+const std::string kCmdNameSlotsMgrtOne = "slotsmgrtone";
+const std::string kCmdNameSlotsMgrtTagOne = "slotsmgrttagone";
+
+
+//Cluster
+const std::string kCmdNamePkClusterInfo = "pkclusterinfo";
+const std::string kCmdNamePkClusterAddSlots = "pkclusteraddslots";
+const std::string kCmdNamePkClusterDelSlots = "pkclusterdelslots";
+const std::string kCmdNamePkClusterSlotsSlaveof = "pkclusterslotsslaveof";
+
+const std::string kClusterPrefix = "pkcluster";
 typedef pink::RedisCmdArgsType PikaCmdArgsType;
 static const int RAW_ARGS_LEN = 1024 * 1024; 
 
 enum CmdFlagsMask {
-  kCmdFlagsMaskRW               = 1,
-  kCmdFlagsMaskType             = 30,
-  kCmdFlagsMaskLocal            = 32,
-  kCmdFlagsMaskSuspend          = 64,
-  kCmdFlagsMaskPrior            = 128,
-  kCmdFlagsMaskAdminRequire     = 256
+  kCmdFlagsMaskRW            = 1,
+  kCmdFlagsMaskType          = 30,
+  kCmdFlagsMaskLocal         = 32,
+  kCmdFlagsMaskSuspend       = 64,
+  kCmdFlagsMaskPrior         = 128,
+  kCmdFlagsMaskAdminRequire  = 256,
+  kCmdFlagsMaskPartition     = 1536
 };
 
 enum CmdFlags {
-  kCmdFlagsRead           = 0, //default rw
-  kCmdFlagsWrite          = 1,
-  kCmdFlagsAdmin          = 0, //default type
-  kCmdFlagsKv             = 2,
-  kCmdFlagsHash           = 4,
-  kCmdFlagsList           = 6,
-  kCmdFlagsSet            = 8,
-  kCmdFlagsZset           = 10,
-  kCmdFlagsBit            = 12,
-  kCmdFlagsHyperLogLog    = 14,
-  kCmdFlagsGeo            = 16,
-  kCmdFlagsPubSub         = 18,
-  kCmdFlagsNoLocal        = 0, //default nolocal
-  kCmdFlagsLocal          = 32,
-  kCmdFlagsNoSuspend      = 0, //default nosuspend
-  kCmdFlagsSuspend        = 64,
-  kCmdFlagsNoPrior        = 0, //default noprior
-  kCmdFlagsPrior          = 128,
-  kCmdFlagsNoAdminRequire = 0, //default no need admin
-  kCmdFlagsAdminRequire   = 256
+  kCmdFlagsRead                  = 0, //default rw
+  kCmdFlagsWrite                 = 1,
+  kCmdFlagsAdmin                 = 0, //default type
+  kCmdFlagsKv                    = 2,
+  kCmdFlagsHash                  = 4,
+  kCmdFlagsList                  = 6,
+  kCmdFlagsSet                   = 8,
+  kCmdFlagsZset                  = 10,
+  kCmdFlagsBit                   = 12,
+  kCmdFlagsHyperLogLog           = 14,
+  kCmdFlagsGeo                   = 16,
+  kCmdFlagsPubSub                = 18,
+  kCmdFlagsNoLocal               = 0, //default nolocal
+  kCmdFlagsLocal                 = 32,
+  kCmdFlagsNoSuspend             = 0, //default nosuspend
+  kCmdFlagsSuspend               = 64,
+  kCmdFlagsNoPrior               = 0, //default noprior
+  kCmdFlagsPrior                 = 128,
+  kCmdFlagsNoAdminRequire        = 0, //default no need admin
+  kCmdFlagsAdminRequire          = 256,
+  kCmdFlagsDoNotSpecifyPartition = 0, //default do not specify partition
+  kCmdFlagsSinglePartition       = 512,
+  kCmdFlagsMultiPartition        = 1024
 };
 
-
-class CmdInfo {
-public:
-  CmdInfo(const std::string _name, int _num, uint16_t _flag)
-    : name_(_name), arity_(_num), flag_(_flag) {}
-  bool CheckArg(int num) const {
-    if ((arity_ > 0 && num != arity_) || (arity_ < 0 && num < -arity_)) {
-      return false;
-    }
-    return true;
-  }
-  bool is_write() const {
-    return ((flag_ & kCmdFlagsMaskRW) == kCmdFlagsWrite);
-  }
-  uint16_t flag_type() const {
-    return flag_ & kCmdFlagsMaskType;
-  }
-  bool is_local() const {
-    return ((flag_ & kCmdFlagsMaskLocal) == kCmdFlagsLocal);
-  }
-  // Others need to be suspended when a suspend command run
-  bool is_suspend() const {
-    return ((flag_ & kCmdFlagsMaskSuspend) == kCmdFlagsSuspend);
-  }
-  bool is_prior() const {
-    return ((flag_ & kCmdFlagsMaskPrior) == kCmdFlagsPrior);
-  }
-  // Must with admin auth
-  bool is_admin_require() const {
-    return ((flag_ & kCmdFlagsMaskAdminRequire) == kCmdFlagsAdminRequire);
-  }
-  std::string name() const {
-    return name_;
-  }
-private:
-  std::string name_;
-  int arity_;
-  uint16_t flag_;
-
-  CmdInfo(const CmdInfo&);
-  CmdInfo& operator=(const CmdInfo&);
-};
 
 void inline RedisAppendContent(std::string& str, const std::string& value);
 void inline RedisAppendLen(std::string& str, int64_t ori, const std::string &prefix);
@@ -312,6 +277,7 @@ public:
     kWrongNum,
     kInvalidIndex,
     kInvalidDbType,
+    kInvalidTable,
     kErrOther,
   };
 
@@ -374,10 +340,19 @@ public:
       result.append("' command\r\n");
       break;
     case kInvalidIndex:
-      result = "-ERR invalid DB index\r\n";
+      result = "-ERR invalid DB index for '";
+      result.append(message_);
+      result.append("'\r\n");
       break;
     case kInvalidDbType:
-      result = "-ERR invalid DB type\r\n";
+      result = "-ERR invalid DB for '";
+      result.append(message_);
+      result.append("'\r\n");
+      break;
+    case kInvalidTable:
+      result = "-ERR invalid Table for '";
+      result.append(message_);
+      result.append("'\r\n");
       break;
     case kErrOther:
       result = "-ERR ";
@@ -400,14 +375,14 @@ public:
   void AppendInteger(int64_t ori) {
     RedisAppendLen(message_, ori, ":");
   }
-  void AppendContent(const std::string &value) {
+  void AppendContent(const std::string& value) {
     RedisAppendContent(message_, value);
   }
-  void AppendString(const std::string &value) {
+  void AppendString(const std::string& value) {
     AppendStringLen(value.size());
     AppendContent(value);
   }
-  void AppendStringRaw(std::string &value) {
+  void AppendStringRaw(const std::string& value) {
     message_.append(value);
   }
   void SetRes(CmdRet _ret, const std::string content = "") {
@@ -424,63 +399,66 @@ private:
 
 class Cmd {
  public:
-  Cmd() {}
+  Cmd(const std::string& name, int arity, uint16_t flag)
+    : name_(name), arity_(arity), flag_(flag) {}
   virtual ~Cmd() {}
 
-  virtual void Do() = 0;
+  virtual std::vector<std::string> current_key() const;
+  virtual void Execute();
+  virtual void ProcessFlushDBCmd();
+  virtual void ProcessFlushAllCmd();
+  virtual void ProcessSinglePartitionCmd();
+  virtual void ProcessMultiPartitionCmd();
+  virtual void ProcessDoNotSpecifyPartitionCmd();
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) = 0;
+  virtual Cmd* Clone() = 0;
 
-  void Initial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info) {
-    res_.clear(); // Clear res content
-    Clear();      // Clear cmd, Derived class can has own implement
-    DoInitial(argvs, ptr_info);
-  };
+  void Initial(const PikaCmdArgsType& argv,
+               const std::string& table_name);
 
-  CmdRes& res() {
-    return res_;
-  }
+  bool is_write()            const;
+  bool is_local()            const;
+  bool is_suspend()          const;
+  bool is_admin_require()    const;
+  bool is_single_partition() const;
+  bool is_multi_partition()  const;
 
-  virtual std::string ToBinlog(const PikaCmdArgsType& argv,
-                               uint32_t exec_time,
+  std::string name() const;
+  CmdRes& res();
+
+  virtual std::string ToBinlog(uint32_t exec_time,
                                const std::string& server_id,
                                uint64_t logic_id,
                                uint32_t filenum,
-                               uint64_t offset) {
-    std::string content;
-    content.reserve(RAW_ARGS_LEN);
-    RedisAppendLen(content, argv.size(), "*");
+                               uint64_t offset);
 
-    for (const auto& v : argv) {
-      RedisAppendLen(content, v.size(), "$");
-      RedisAppendContent(content, v);
-    }
-
-    return PikaBinlogTransverter::BinlogEncode(BinlogType::TypeFirst,
-                                               exec_time,
-                                               std::stoi(server_id),
-                                               logic_id,
-                                               filenum,
-                                               offset,
-                                               content,
-                                               {});
-  }
+  void SetConn(const std::shared_ptr<pink::PinkConn> conn);
+  std::shared_ptr<pink::PinkConn> GetConn();
 
  protected:
+  // enable copy, used default copy
+  //Cmd(const Cmd&);
+  bool CheckArg(int num) const;
+  void LogCommand() const;
+
+  std::string name_;
+  int arity_;
+  uint16_t flag_;
+
   CmdRes res_;
+  PikaCmdArgsType argv_;
+  std::string table_name_;
+
+  std::weak_ptr<pink::PinkConn> conn_;
 
  private:
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info) = 0;
+  virtual void DoInitial() = 0;
   virtual void Clear() {};
 
-  Cmd(const Cmd&);
   Cmd& operator=(const Cmd&);
 };
 
 typedef std::unordered_map<std::string, Cmd*> CmdTable;
-
-// Method for CmdInfo Table
-void InitCmdInfoTable();
-const CmdInfo* GetCmdInfo(const std::string& opt);
-void DestoryCmdInfoTable();
 
 // Method for Cmd Table
 void InitCmdTable(CmdTable* cmd_table);
@@ -499,5 +477,7 @@ void RedisAppendLen(std::string& str, int64_t ori, const std::string &prefix) {
   str.append(buf);
   str.append(kNewLine);
 }
+
+void TryAliasChange(std::vector<std::string>* argv);
 
 #endif

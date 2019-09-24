@@ -6,24 +6,11 @@
 #ifndef PIKA_BINLOG_TRANSVERTER_H_
 #define PIKA_BINLOG_TRANSVERTER_H_
 
-#include <iostream>
 #include <vector>
+#include <stdint.h>
+#include <iostream>
 #include <glog/logging.h>
 
-#include "slash/include/slash_coding.h"
-
-
-/*
- * **************Header**************
- *  | <Transfer Type> | <Body Lenth> |
- *       2 Bytes         4 Bytes
- */
-#define HEADER_LEN 6
-
-enum TransferOperate{
-  kTypeAuth = 1,
-  kTypeBinlog = 2
-};
 
 /*
  * ***********************************************Type First Binlog Item Format***********************************************
@@ -37,14 +24,10 @@ enum BinlogType {
   TypeFirst = 1,
 };
 
-struct BinlogHeader {
-  uint16_t header_type_;
-  uint32_t item_length_;
-  BinlogHeader() {
-    header_type_ = 0;
-    item_length_ = 0;
-  }
-};
+
+const int BINLOG_ITEM_HEADER_SIZE = 34;
+const int PADDING_BINLOG_PROTOCOL_SIZE = 22;
+const int SPACE_STROE_PARAMETER_LENGTH = 5;
 
 class BinlogItem {
   public:
@@ -98,9 +81,8 @@ class PikaBinlogTransverter{
                              const std::string& binlog,
                              BinlogItem* binlog_item);
 
-    static bool BinlogHeaderDecode(BinlogType type,
-                                   const std::string& binlog,
-                                   BinlogHeader* binlog_header);
+    static std::string ConstructPaddingBinlog(BinlogType type, uint32_t size);
+
     static bool BinlogItemWithoutContentDecode(BinlogType type,
                                                const std::string& binlog,
                                                BinlogItem* binlog_item);

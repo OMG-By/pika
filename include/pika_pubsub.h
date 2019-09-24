@@ -5,6 +5,7 @@
 
 #ifndef PIKA_PUBSUB_H_
 #define PIKA_PUBSUB_H_
+
 #include "pika_command.h"
 
 /*
@@ -12,57 +13,81 @@
  */
 class PublishCmd : public Cmd {
  public:
-   PublishCmd() {}
-   virtual void Do();
+  PublishCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new PublishCmd(*this);
+  }
  private:
-   std::string channel_;
-   std::string msg_;
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
+  std::string channel_;
+  std::string msg_;
+  virtual void DoInitial() override;
 };
 
 class SubscribeCmd : public Cmd {
  public:
-   SubscribeCmd() {}
-   virtual void Do();
+  SubscribeCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new SubscribeCmd(*this);
+  }
  private:
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class UnSubscribeCmd : public Cmd {
  public:
-   UnSubscribeCmd() {}
-   virtual void Do();
+  UnSubscribeCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new UnSubscribeCmd(*this);
+  }
  private:
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class PUnSubscribeCmd : public Cmd {
  public:
-   PUnSubscribeCmd() {}
-   virtual void Do();
+  PUnSubscribeCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new PUnSubscribeCmd(*this);
+  }
  private:
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class PSubscribeCmd : public Cmd {
  public:
-   PSubscribeCmd() {}
-   virtual void Do();
+  PSubscribeCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new PSubscribeCmd(*this);
+  }
  private:
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class PubSubCmd : public Cmd {
  public:
-   PubSubCmd() {}
-   virtual void Do();
+  PubSubCmd(const std::string& name, int arity, uint16_t flag)
+     : Cmd(name,  arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr) override;
+  virtual Cmd* Clone() override {
+    return new PubSubCmd(*this);
+  }
  private:
-   std::string subcommand_;
-   std::vector<std::string > arguments_;
-   virtual void DoInitial(const PikaCmdArgsType &argv, const CmdInfo* const ptr_info);
-   virtual void Clear() {
-     arguments_.clear(); 
-   }
+  std::string subcommand_;
+  std::vector<std::string > arguments_;
+  virtual void DoInitial() override;
+  virtual void Clear() {
+    arguments_.clear();
+  }
 };
 
 #endif  // INCLUDE_PIKA_PUBSUB_H_

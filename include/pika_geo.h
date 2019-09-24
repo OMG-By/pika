@@ -5,31 +5,32 @@
 
 #ifndef PIKA_GEO_H_
 #define PIKA_GEO_H_
+
 #include "include/pika_command.h"
+#include "include/pika_partition.h"
 
 /*
  * zset
  */
- enum Sort
-{
+enum Sort {
   Unsort,	//default
   Asc,
   Desc
 };
 
- struct GeoPoint {
+struct GeoPoint {
   std::string member;
   double longitude;
   double latitude;
 };
 
- struct NeighborPoint{
-   std::string member;
-   double score;
-   double distance;
- };
+struct NeighborPoint {
+  std::string member;
+  double score;
+  double distance;
+};
 
- struct GeoRange {
+struct GeoRange {
   std::string member;
   double longitude;
   double latitude;
@@ -45,55 +46,95 @@
   bool storedist;
   std::string storekey;
   Sort sort;
- };
+};
 
 class GeoAddCmd : public Cmd {
-public:
-  GeoAddCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoAddCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoAddCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<GeoPoint> pos_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
 };
 
 class GeoPosCmd : public Cmd {
-public:
-  GeoPosCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoPosCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoPosCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<std::string> members_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
 };
 
 class GeoDistCmd : public Cmd {
-public:
-  GeoDistCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoDistCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoDistCmd(*this);
+  }
+ private:
   std::string key_, first_pos_, second_pos_, unit_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
 };
 
 class GeoHashCmd : public Cmd {
-public:
-  GeoHashCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoHashCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoHashCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<std::string> members_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
 };
 
 class GeoRadiusCmd : public Cmd {
-public:
-  GeoRadiusCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoRadiusCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoRadiusCmd(*this);
+  }
+ private:
   std::string key_;
   GeoRange range_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
   virtual void Clear() {
     range_.withdist = false;
     range_.withcoord = false;
@@ -108,13 +149,17 @@ private:
 };
 
 class GeoRadiusByMemberCmd : public Cmd {
-public:
-  GeoRadiusByMemberCmd() {}
-  virtual void Do();
-private:
+ public:
+  GeoRadiusByMemberCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag) {}
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new GeoRadiusByMemberCmd(*this);
+  }
+ private:
   std::string key_;
   GeoRange range_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial();
   virtual void Clear() {
     range_.withdist = false;
     range_.withcoord = false;

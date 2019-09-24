@@ -3,14 +3,15 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include <glog/logging.h>
 #include "include/pika_dispatch_thread.h"
-#include "include/pika_client_conn.h"
-#include "include/pika_server.h"
-#include "include/pika_conf.h"
 
-extern PikaServer* g_pika_server;
+#include <glog/logging.h>
+
+#include "include/pika_conf.h"
+#include "include/pika_server.h"
+
 extern PikaConf* g_pika_conf;
+extern PikaServer* g_pika_server;
 
 PikaDispatchThread::PikaDispatchThread(std::set<std::string> &ips, int port, int work_num,
                                        int cron_interval, int queue_limit)
@@ -74,19 +75,4 @@ bool PikaDispatchThread::Handles::AccessHandle(std::string& ip) const {
 void PikaDispatchThread::Handles::CronHandle() const {
   pika_disptcher_->thread_rep_->set_keepalive_timeout(g_pika_conf->timeout());
   g_pika_server->ResetLastSecQuerynum();
-}
-
-int PikaDispatchThread::Handles::CreateWorkerSpecificData(void** data) const {
-  //CmdTable* cmds = new CmdTable;
-  //cmds->reserve(300);
-  //InitCmdTable(cmds);
-  //*data = reinterpret_cast<void*>(cmds);
-  return 0;
-}
-
-int PikaDispatchThread::Handles::DeleteWorkerSpecificData(void* data) const {
-  //CmdTable* cmds = reinterpret_cast<CmdTable*>(data);
-  //DestoryCmdTable(cmds);
-  //delete cmds;
-  return 0;
 }

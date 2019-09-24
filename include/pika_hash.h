@@ -5,152 +5,288 @@
 
 #ifndef PIKA_HASH_H_
 #define PIKA_HASH_H_
-#include "include/pika_command.h"
+
 #include "blackwidow/blackwidow.h"
 
+#include "include/pika_command.h"
+#include "include/pika_partition.h"
 
 /*
  * hash
  */
-
 class HDelCmd : public Cmd {
-public:
-  HDelCmd() {}
-  virtual void Do();
-private:
+ public:
+  HDelCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HDelCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<std::string> fields_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HGetCmd : public Cmd {
-public:
-  HGetCmd() {}
-  virtual void Do();
-private:
+ public:
+  HGetCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HGetCmd(*this);
+  }
+ private:
   std::string key_, field_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HGetallCmd : public Cmd {
-public:
-  HGetallCmd() {}
-  virtual void Do();
-private:
+ public:
+  HGetallCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HGetallCmd(*this);
+  }
+ private:
   std::string key_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HSetCmd : public Cmd {
-public:
-  HSetCmd() {}
-  virtual void Do();
-private:
+ public:
+  HSetCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HSetCmd(*this);
+  }
+ private:
   std::string key_, field_, value_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HExistsCmd : public Cmd {
-public:
-  HExistsCmd() {}
-  virtual void Do();
-private:
+ public:
+  HExistsCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HExistsCmd(*this);
+  }
+ private:
   std::string key_, field_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HIncrbyCmd : public Cmd {
-public:
-  HIncrbyCmd() {}
-  virtual void Do();
-private:
+ public:
+  HIncrbyCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HIncrbyCmd(*this);
+  }
+ private:
   std::string key_, field_;
   int64_t by_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HIncrbyfloatCmd : public Cmd {
-public:
-  HIncrbyfloatCmd() {}
-  virtual void Do();
-private:
+ public:
+  HIncrbyfloatCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HIncrbyfloatCmd(*this);
+  }
+ private:
   std::string key_, field_, by_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HKeysCmd : public Cmd {
-public:
-  HKeysCmd() {}
-  virtual void Do();
-private:
+ public:
+  HKeysCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HKeysCmd(*this);
+  }
+ private:
   std::string key_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HLenCmd : public Cmd {
-public:
-  HLenCmd() {}
-  virtual void Do();
-private:
+ public:
+  HLenCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HLenCmd(*this);
+  }
+ private:
   std::string key_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HMgetCmd : public Cmd {
-public:
-  HMgetCmd() {}
-  virtual void Do();
-private:
+ public:
+  HMgetCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HMgetCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<std::string> fields_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HMsetCmd : public Cmd {
-public:
-  HMsetCmd() {}
-  virtual void Do();
-private:
+ public:
+  HMsetCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HMsetCmd(*this);
+  }
+ private:
   std::string key_;
   std::vector<blackwidow::FieldValue> fvs_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HSetnxCmd : public Cmd {
-public:
-  HSetnxCmd() {}
-  virtual void Do();
-private:
+ public:
+  HSetnxCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HSetnxCmd(*this);
+  }
+ private:
   std::string key_, field_, value_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HStrlenCmd : public Cmd {
-public:
-  HStrlenCmd() {}
-  virtual void Do();
-private:
+ public:
+  HStrlenCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HStrlenCmd(*this);
+  }
+ private:
   std::string key_, field_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HValsCmd : public Cmd {
-public:
-  HValsCmd() {}
-  virtual void Do();
-private:
+ public:
+  HValsCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name,  arity, flag) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HValsCmd(*this);
+  }
+ private:
   std::string key_, field_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
 };
 
 class HScanCmd : public Cmd {
-public:
-  HScanCmd() : pattern_("*"), count_(10) {}
-  virtual void Do();
-private:
+ public:
+  HScanCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag), pattern_("*"), count_(10) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HScanCmd(*this);
+  }
+ private:
   std::string key_, pattern_;
   int64_t cursor_, count_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
   virtual void Clear() {
     pattern_ = "*";
     count_ = 10;
@@ -158,13 +294,22 @@ private:
 };
 
 class HScanxCmd : public Cmd {
-public:
-  HScanxCmd() : pattern_("*"), count_(10) {}
-  virtual void Do();
-private:
+ public:
+  HScanxCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag), pattern_("*"), count_(10) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new HScanxCmd(*this);
+  }
+ private:
   std::string key_, start_field_, pattern_;
   int64_t count_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
   virtual void Clear() {
     pattern_ = "*";
     count_ = 10;
@@ -172,16 +317,25 @@ private:
 };
 
 class PKHScanRangeCmd : public Cmd {
-public:
-  PKHScanRangeCmd() : pattern_("*"), limit_(10) {}
-  virtual void Do();
-private:
+ public:
+  PKHScanRangeCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag), pattern_("*"), limit_(10) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new PKHScanRangeCmd(*this);
+  }
+ private:
   std::string key_;
   std::string field_start_;
   std::string field_end_;
   std::string pattern_;
   int64_t limit_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
   virtual void Clear() {
     pattern_ = "*";
     limit_ = 10;
@@ -189,16 +343,25 @@ private:
 };
 
 class PKHRScanRangeCmd : public Cmd {
-public:
-  PKHRScanRangeCmd() : pattern_("*"), limit_(10) {}
-  virtual void Do();
-private:
+ public:
+  PKHRScanRangeCmd(const std::string& name, int arity, uint16_t flag)
+      : Cmd(name, arity, flag), pattern_("*"), limit_(10) {}
+  virtual std::vector<std::string> current_key() const {
+    std::vector<std::string> res;
+    res.push_back(key_);
+    return res;
+  }
+  virtual void Do(std::shared_ptr<Partition> partition = nullptr);
+  virtual Cmd* Clone() override {
+    return new PKHRScanRangeCmd(*this);
+  }
+ private:
   std::string key_;
   std::string field_start_;
   std::string field_end_;
   std::string pattern_;
   int64_t limit_;
-  virtual void DoInitial(const PikaCmdArgsType &argvs, const CmdInfo* const ptr_info);
+  virtual void DoInitial() override;
   virtual void Clear() {
     pattern_ = "*";
     limit_ = 10;

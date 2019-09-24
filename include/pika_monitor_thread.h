@@ -5,17 +5,17 @@
 
 #ifndef  PIKA_MONITOR_THREAD_H_
 #define  PIKA_MONITOR_THREAD_H_
-#include <map>
-#include <set>
-#include <atomic>
+
 #include <list>
 #include <deque>
 #include <queue>
+#include <atomic>
 
 #include "pink/include/pink_thread.h"
 #include "slash/include/slash_mutex.h"
-#include "include/pika_client_conn.h"
+
 #include "include/pika_define.h"
+#include "include/pika_client_conn.h"
 
 class PikaMonitorThread : public pink::Thread {
  public:
@@ -34,6 +34,7 @@ class PikaMonitorThread : public pink::Thread {
   pink::WriteStatus SendMessage(int32_t fd, std::string& message);
   void RemoveMonitorClient(const std::string& ip_port);
 
+  std::atomic<bool> has_monitor_clients_;
   slash::Mutex monitor_mutex_protector_;
   slash::CondVar monitor_cond_;
 

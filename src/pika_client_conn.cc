@@ -3,47 +3,28 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include <sstream>
+#include "include/pika_client_conn.h"
+
 #include <vector>
 #include <algorithm>
 
 #include <glog/logging.h>
 
-#include "slash/include/slash_coding.h"
-#include "include/pika_server.h"
 #include "include/pika_conf.h"
-#include "include/pika_client_conn.h"
-#include "include/pika_dispatch_thread.h"
+#include "include/pika_server.h"
 #include "include/pika_cmd_table_manager.h"
 
 extern PikaConf* g_pika_conf;
 extern PikaServer* g_pika_server;
 extern PikaCmdTableManager* g_pika_cmd_table_manager;
 
-static std::string ConstructPubSubResp(
-                                const std::string& cmd,
-                                const std::vector<std::pair<std::string, int>>& result) {
-  std::stringstream resp;
-  if (result.size() == 0) {
-    resp << "*3\r\n" << "$" << cmd.length() << "\r\n" << cmd << "\r\n" <<
-                        "$" << -1           << "\r\n" << ":" << 0      << "\r\n";
-  }
-  for (auto it = result.begin(); it != result.end(); it++) {
-    resp << "*3\r\n" << "$" << cmd.length()       << "\r\n" << cmd       << "\r\n" <<
-                        "$" << it->first.length() << "\r\n" << it->first << "\r\n" <<
-                        ":" << it->second         << "\r\n";
-  }
-  return resp.str();
-}
-
 PikaClientConn::PikaClientConn(int fd, std::string ip_port,
-                               pink::ServerThread* server_thread,
-                               void* worker_specific_data,
+                               pink::Thread* thread,
                                pink::PinkEpoll* pink_epoll,
                                const pink::HandleType& handle_type)
-      : RedisConn(fd, ip_port, server_thread, pink_epoll, handle_type),
-        server_thread_(server_thread),
-        cmds_table_(reinterpret_cast<CmdTable*>(worker_specific_data)),
+      : RedisConn(fd, ip_port, thread, pink_epoll, handle_type),
+        server_thread_(reinterpret_cast<pink::ServerThread*>(thread)),
+        current_table_(g_pika_conf->default_table()),
         is_pubsub_(false) {
   auth_stat_.Init();
 }
@@ -51,14 +32,15 @@ PikaClientConn::PikaClientConn(int fd, std::string ip_port,
 std::string PikaClientConn::DoCmd(const PikaCmdArgsType& argv,
                                   const std::string& opt) {
   // Get command info
-  const CmdInfo* const cinfo_ptr = GetCmdInfo(opt);
-  Cmd* c_ptr = g_pika_cmd_table_manager->GetCmd(opt);
-  if (!cinfo_ptr || !c_ptr) {
+  std::shared_ptr<Cmd> c_ptr = g_pika_cmd_table_manager->GetCmd(opt);
+  if (!c_ptr) {
       return "-Err unknown or unsupported command \'" + opt + "\'\r\n";
   }
+  c_ptr->SetConn(std::dynamic_pointer_cast<PikaClientConn>(shared_from_this()));
 
   // Check authed
-  if (!auth_stat_.IsAuthed(cinfo_ptr)) {
+  // AuthCmd will set stat_
+  if (!auth_stat_.IsAuthed(c_ptr)) {
     return "-ERR NOAUTH Authentication required.\r\n";
   }
 
@@ -67,35 +49,21 @@ std::string PikaClientConn::DoCmd(const PikaCmdArgsType& argv,
     start_us = slash::NowMicros();
   }
 
-  // For now, only shutdown need check local
-  if (cinfo_ptr->is_local()) {
-    if (ip_port().find("127.0.0.1") == std::string::npos
-        && ip_port().find(g_pika_server->host()) == std::string::npos) {
-      LOG(WARNING) << "\'shutdown\' should be localhost";
-      return "-ERR \'shutdown\' should be localhost\r\n";
-    }
-  }
-
-  std::string monitor_message;
   bool is_monitoring = g_pika_server->HasMonitorClients();
   if (is_monitoring) {
-    monitor_message = std::to_string(1.0*slash::NowMicros()/1000000) +
-      " [0 " + this->ip_port() + "]";
-    for (PikaCmdArgsType::const_iterator iter = argv.begin(); iter != argv.end(); iter++) {
-      monitor_message += " " + slash::ToRead(*iter);
-    }
-    g_pika_server->AddMonitorMessage(monitor_message);
+    ProcessMonitor(argv);
   }
 
   // Initial
-  c_ptr->Initial(argv, cinfo_ptr);
+  c_ptr->Initial(argv, current_table_);
   if (!c_ptr->res().ok()) {
     return c_ptr->res().message();
   }
 
-  g_pika_server->UpdateQueryNumAndExecCountTable(argv[0]);
+  g_pika_server->UpdateQueryNumAndExecCountTable(opt);
  
   // PubSub connection
+  // (P)SubscribeCmd will set is_pubsub_
   if (this->IsPubSub()) {
     if (opt != kCmdNameSubscribe &&
         opt != kCmdNameUnSubscribe &&
@@ -106,135 +74,77 @@ std::string PikaClientConn::DoCmd(const PikaCmdArgsType& argv,
     }
   }
 
-  // Monitor
-  if (opt == kCmdNameMonitor) {
-    std::shared_ptr<PinkConn> conn = server_thread_->MoveConnOut(fd());
-    assert(conn.get() == this);
-    g_pika_server->AddMonitorClient(std::dynamic_pointer_cast<PikaClientConn>(conn));
-    g_pika_server->AddMonitorMessage("OK");
-    return ""; // Monitor thread will return "OK"
+  if (!g_pika_server->IsCommandSupport(opt)) {
+    return "-ERR This command only support in classic mode\r\n";
   }
 
-  //PubSub
-  if (opt == kCmdNamePSubscribe || opt == kCmdNameSubscribe) {             // PSubscribe or Subscribe
-    std::shared_ptr<PinkConn> conn = std::dynamic_pointer_cast<PikaClientConn>(shared_from_this());
-    if (!this->IsPubSub()) {
-      conn = server_thread_->MoveConnOut(fd());
-    }
-    std::vector<std::string > channels;
-    for (size_t i = 1; i < argv.size(); i++) {
-      channels.push_back(argv[i]);
-    }
-    std::vector<std::pair<std::string, int>> result;
-    this->SetIsPubSub(true);
-    this->SetHandleType(pink::HandleType::kSynchronous);
-    g_pika_server->Subscribe(conn, channels, opt == kCmdNamePSubscribe, &result);
-    return ConstructPubSubResp(opt, result);
-  } else if (opt == kCmdNamePUnSubscribe || opt == kCmdNameUnSubscribe) {  // PUnSubscribe or UnSubscribe
-    std::vector<std::string > channels;
-    for (size_t i = 1; i < argv.size(); i++) {
-      channels.push_back(argv[i]);
-    }
-    std::vector<std::pair<std::string, int>> result;
-    std::shared_ptr<PinkConn> conn = std::dynamic_pointer_cast<PikaClientConn>(shared_from_this());
-    int subscribed = g_pika_server->UnSubscribe(conn, channels, opt == kCmdNamePUnSubscribe, &result);
-    if (subscribed == 0 && this->IsPubSub()) {
-      /*
-       * if the number of client subscribed is zero,
-       * the client will exit the Pub/Sub state
-       */
-      server_thread_->HandleNewConn(fd(), ip_port());
-      this->SetIsPubSub(false);
-    }
-    return ConstructPubSubResp(opt, result);
+  if (!g_pika_server->IsTableExist(current_table_)) {
+    return "-ERR Table not found\r\n";
   }
 
-  if (cinfo_ptr->is_write()) {
-    if (g_pika_server->BinlogIoError()) {
+  // TODO: Consider special commands, like flushall, flushdb?
+  if (c_ptr->is_write()) {
+    if (g_pika_server->IsTableBinlogIoError(current_table_)) {
       return "-ERR Writing binlog failed, maybe no space left on device\r\n";
     }
-    if (g_pika_server->readonly()) {
+    std::vector<std::string> cur_key = c_ptr->current_key();
+    if (cur_key.empty()) {
+      return "-ERR Internal ERROR\r\n";
+    }
+    if (g_pika_server->readonly(current_table_, cur_key.front())) {
       return "-ERR Server in read-only\r\n";
     }
-    if (argv.size() >= 2) {
-      g_pika_server->mutex_record_.Lock(argv[1]);
-    }
   }
 
-  // Add read lock for no suspend command
-  if (!cinfo_ptr->is_suspend()) {
-    g_pika_server->RWLockReader();
-  }
-
-  uint32_t exec_time = time(nullptr);
-  c_ptr->Do();
-
-  if (cinfo_ptr->is_write()
-    && g_pika_conf->write_binlog()) {
-    if (c_ptr->res().ok()) {
-      g_pika_server->logger_->Lock();
-      uint32_t filenum = 0;
-      uint64_t offset = 0;
-      uint64_t logic_id = 0;
-      g_pika_server->logger_->GetProducerStatus(&filenum, &offset, &logic_id);
-
-      std::string binlog = c_ptr->ToBinlog(argv,
-                                           exec_time,
-                                           g_pika_conf->server_id(),
-                                           logic_id,
-                                           filenum,
-                                           offset);
-      slash::Status s;
-      if (!binlog.empty()) {
-        s = g_pika_server->logger_->Put(binlog);
-      }
-
-      g_pika_server->logger_->Unlock();
-      if (!s.ok()) {
-        LOG(WARNING) << "Writing binlog failed, maybe no space left on device";
-        g_pika_server->SetBinlogIoError(true);
-        return "-ERR Writing binlog failed, maybe no space left on device\r\n";
-      }
-    }
-  }
-
-  if (!cinfo_ptr->is_suspend()) {
-    g_pika_server->RWUnlock();
-  }
-
-  if (cinfo_ptr->is_write()) {
-    if (argv.size() >= 2) {
-      g_pika_server->mutex_record_.Unlock(argv[1]);
-    }
-  }
+  // Process Command
+  c_ptr->Execute();
 
   if (g_pika_conf->slowlog_slower_than() >= 0) {
-    int32_t start_time = start_us / 1000000;
-    int64_t duration = slash::NowMicros() - start_us;
-    if (duration > g_pika_conf->slowlog_slower_than()) {
-      g_pika_server->SlowlogPushEntry(argv, start_time, duration);
-      if (g_pika_conf->slowlog_write_errorlog()) {
-        std::string slow_log;
-        for (unsigned int i = 0; i < argv.size(); i++) {
+    ProcessSlowlog(argv, start_us);
+  }
+
+  return c_ptr->res().message();
+}
+
+void PikaClientConn::ProcessSlowlog(const PikaCmdArgsType& argv, uint64_t start_us) {
+  int32_t start_time = start_us / 1000000;
+  int64_t duration = slash::NowMicros() - start_us;
+  if (duration > g_pika_conf->slowlog_slower_than()) {
+    g_pika_server->SlowlogPushEntry(argv, start_time, duration);
+    if (g_pika_conf->slowlog_write_errorlog()) {
+      bool trim = false;
+      std::string slow_log;
+      uint32_t cmd_size = 0;
+      for (unsigned int i = 0; i < argv.size(); i++) {
+        cmd_size += 1 + argv[i].size(); // blank space and argument length
+        if (!trim) {
           slow_log.append(" ");
           slow_log.append(slash::ToRead(argv[i]));
           if (slow_log.size() >= 1000) {
+            trim = true;
             slow_log.resize(1000);
             slow_log.append("...\"");
-            break;
           }
         }
-        LOG(ERROR) << "ip_port: "<< ip_port() << ", command:" << slow_log << ", start_time(s): " << start_time << ", duration(us): " << duration;
       }
+      LOG(ERROR) << "ip_port: " << ip_port() << ", table: " << current_table_
+        << ", command:" << slow_log << ", command_size: " << cmd_size - 1
+        << ", arguments: " << argv.size() << ", start_time(s): " << start_time
+        << ", duration(us): " << duration;
     }
   }
+}
 
-  if (opt == kCmdNameAuth) {
-    if (!auth_stat_.ChecknUpdate(c_ptr->res().raw_message())) {
-//      LOG(WARNING) << "(" << ip_port() << ")Wrong Password";
-    }
+void PikaClientConn::ProcessMonitor(const PikaCmdArgsType& argv) {
+  std::string monitor_message;
+  std::string table_name = g_pika_conf->classic_mode()
+    ? current_table_.substr(2) : current_table_;
+  monitor_message = std::to_string(1.0*slash::NowMicros()/1000000) +
+    " [" + table_name + " " + this->ip_port() + "]";
+  for (PikaCmdArgsType::const_iterator iter = argv.begin(); iter != argv.end(); iter++) {
+    monitor_message += " " + slash::ToRead(*iter);
   }
-  return c_ptr->res().message();
+  g_pika_server->AddMonitorMessage(monitor_message);
 }
 
 void PikaClientConn::AsynProcessRedisCmds(const std::vector<pink::RedisCmdArgsType>& argvs, std::string* response) {
@@ -263,6 +173,11 @@ int PikaClientConn::DealMessage(const PikaCmdArgsType& argv, std::string* respon
 
   if (argv.empty()) return -2;
   std::string opt = argv[0];
+  if (opt == kClusterPrefix) {
+    if (argv.size() >=2 ) {
+      opt += argv[1];
+    }
+  }
   slash::StringToLower(opt);
 
   if (response->empty()) {
@@ -293,8 +208,8 @@ void PikaClientConn::AuthStat::Init() {
 }
 
 // Check permission for current command
-bool PikaClientConn::AuthStat::IsAuthed(const CmdInfo* const cinfo_ptr) {
-  std::string opt = cinfo_ptr->name();
+bool PikaClientConn::AuthStat::IsAuthed(const std::shared_ptr<Cmd> cmd_ptr) {
+  std::string opt = cmd_ptr->name();
   if (opt == kCmdNameAuth) {
     return true;
   }
@@ -305,8 +220,8 @@ bool PikaClientConn::AuthStat::IsAuthed(const CmdInfo* const cinfo_ptr) {
     case kAdminAuthed:
       break;
     case kLimitAuthed:
-      if (cinfo_ptr->is_admin_require() 
-          || find(blacklist.begin(), blacklist.end(), opt) != blacklist.end()) {
+      if (cmd_ptr->is_admin_require()
+        || find(blacklist.begin(), blacklist.end(), opt) != blacklist.end()) {
       return false;
       }
       break;

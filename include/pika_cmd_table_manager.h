@@ -5,25 +5,28 @@
 
 #ifndef PIKA_CMD_TABLE_MANAGER_H_
 #define PIKA_CMD_TABLE_MANAGER_H_
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/syscall.h>
 
-#include "slash/include/slash_mutex.h"
 #include "include/pika_command.h"
+#include "include/pika_data_distribution.h"
 
-#define gettid() syscall(__NR_gettid)
 
 class PikaCmdTableManager {
  public:
   PikaCmdTableManager();
   virtual ~PikaCmdTableManager();
-  Cmd* GetCmd(const std::string& opt);
+  std::shared_ptr<Cmd> GetCmd(const std::string& opt);
+  uint32_t DistributeKey(const std::string& key, uint32_t partition_num);
  private:
-  void InsertCurrentThreadCmdTable();
-  bool CheckCurrentThreadCmdTableExist(const pid_t& tid);
+  std::shared_ptr<Cmd> NewCommand(const std::string& opt);
+
+  void InsertCurrentThreadDistributionMap();
+  bool CheckCurrentThreadDistributionMapExist(const pid_t& tid);
+
+  void TryChangeToAlias(std::string *internal_opt);
+
+  CmdTable* cmds_;
 
   pthread_rwlock_t map_protector_;
-  std::unordered_map<pid_t, CmdTable*> thread_table_map_;
+  std::unordered_map<pid_t, PikaDataDistribution*> thread_distribution_map_;
 };
 #endif

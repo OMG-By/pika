@@ -81,6 +81,7 @@ BLACKWIDOW_PATH = $(THIRD_PATH)/blackwidow
 endif
 BLACKWIDOW = $(BLACKWIDOW_PATH)/lib/libblackwidow$(DEBUG_SUFFIX).a
 
+
 ifeq ($(360), 1)
 GLOG := $(GLOG_PATH)/.libs/libglog.a
 endif
@@ -90,7 +91,7 @@ INCLUDE_PATH = -I. \
 							 -I$(PINK_PATH) \
 							 -I$(BLACKWIDOW_PATH)/include \
 							 -I$(ROCKSDB_PATH) \
-							 -I$(ROCKSDB_PATH)/include
+							 -I$(ROCKSDB_PATH)/include \
 
 ifeq ($(360),1)
 INCLUDE_PATH += -I$(GLOG_PATH)/src
@@ -100,7 +101,7 @@ LIB_PATH = -L./ \
 					 -L$(SLASH_PATH)/slash/lib \
 					 -L$(PINK_PATH)/pink/lib \
 					 -L$(BLACKWIDOW_PATH)/lib \
-					 -L$(ROCKSDB_PATH)
+					 -L$(ROCKSDB_PATH)        \
 
 ifeq ($(360),1)
 LIB_PATH += -L$(GLOG_PATH)/.libs
@@ -111,13 +112,17 @@ LDFLAGS += $(LIB_PATH) \
 			 		 -lslash$(DEBUG_SUFFIX) \
 					 -lblackwidow$(DEBUG_SUFFIX) \
 					 -lrocksdb$(DEBUG_SUFFIX) \
-					 -lglog
+					 -lglog \
+					 -lprotobuf \
 
 # ---------------End Dependences----------------
 
 VERSION_CC=$(SRC_PATH)/build_version.cc
 LIB_SOURCES :=  $(VERSION_CC) \
 				$(filter-out $(VERSION_CC), $(wildcard $(SRC_PATH)/*.cc))
+
+PIKA_PROTO := $(wildcard $(SRC_PATH)/*.proto)
+PIKA_PROTO_GENS:= $(PIKA_PROTO:%.proto=%.pb.h) $(PIKA_PROTO:%.proto=%.pb.cc)
 
 
 #-----------------------------------------------
@@ -182,6 +187,7 @@ $(SRC_PATH)/build_version.cc: FORCE
 FORCE: 
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
+PROTOOBJECTS = $(PIKA_PROTO:.proto=.pb.o)
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(BINNAME),)
@@ -192,14 +198,19 @@ BINARY = ${BINNAME}
 
 .PHONY: distclean clean dbg all
 
+%.pb.h %.pb.cc: %.proto
+	$(AM_V_GEN)protoc --proto_path=$(SRC_PATH) --cpp_out=$(SRC_PATH) $<
+
 %.o: %.cc
-	  $(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@
+
+proto: $(PIKA_PROTO_GENS)
 
 all: $(BINARY)
 
 dbg: $(BINARY)
 
-$(BINARY): $(SLASH) $(PINK) $(ROCKSDB) $(BLACKWIDOW) $(GLOG) $(LIBOBJECTS)
+$(BINARY): $(SLASH) $(PINK) $(ROCKSDB) $(BLACKWIDOW) $(GLOG) $(PROTOOBJECTS) $(LIBOBJECTS)
 	$(AM_V_at)rm -f $@
 	$(AM_V_at)$(AM_LINK)
 	$(AM_V_at)rm -rf $(OUTPUT)
@@ -212,7 +223,7 @@ $(SLASH):
 	$(AM_V_at)make -C $(SLASH_PATH)/slash/ DEBUG_LEVEL=$(DEBUG_LEVEL)
 
 $(PINK):
-	$(AM_V_at)make -C $(PINK_PATH)/pink/ DEBUG_LEVEL=$(DEBUG_LEVEL) NO_PB=1 SLASH_PATH=$(SLASH_PATH)
+	$(AM_V_at)make -C $(PINK_PATH)/pink/ DEBUG_LEVEL=$(DEBUG_LEVEL) NO_PB=0 SLASH_PATH=$(SLASH_PATH)
 
 $(ROCKSDB):
 	$(AM_V_at)make -j $(PROCESSOR_NUMS) -C $(ROCKSDB_PATH)/ static_lib DISABLE_JEMALLOC=1 DEBUG_LEVEL=$(DEBUG_LEVEL)
@@ -226,6 +237,7 @@ $(GLOG):
 clean:
 	rm -rf $(OUTPUT)
 	rm -rf $(CLEAN_FILES)
+	rm -rf $(PIKA_PROTO_GENS)
 	find $(SRC_PATH) -name "*.[oda]*" -exec rm -f {} \;
 	find $(SRC_PATH) -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 

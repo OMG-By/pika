@@ -3,19 +3,101 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include "sys/stat.h"
 #include "include/pika_conf.h"
-#include "glog/logging.h"
 
-#include <fstream>
+#include <glog/logging.h>
 
-#include <iostream>
 #include <algorithm>
+#include <strings.h>
 
-PikaConf::PikaConf(const std::string& path):
-  slash::BaseConf(path), conf_path_(path)
-{
+#include "slash/include/env.h"
+
+#include "include/pika_define.h"
+
+PikaConf::PikaConf(const std::string& path)
+    : slash::BaseConf(path), conf_path_(path) {
   pthread_rwlock_init(&rwlock_, NULL);
+  local_meta_ = new PikaMeta();
+}
+
+PikaConf::~PikaConf() {
+  pthread_rwlock_destroy(&rwlock_);
+  delete local_meta_;
+}
+
+Status PikaConf::InternalGetTargetTable(const std::string& table_name, uint32_t* const target) {
+  int32_t table_index = -1;
+  for (size_t idx = 0; table_structs_.size(); ++idx) {
+    if (table_structs_[idx].table_name == table_name) {
+      table_index = idx;
+      break;
+    }
+  }
+  if (table_index == -1) {
+    return Status::NotFound("table : " + table_name + " not found");
+  }
+  *target = table_index;
+  return Status::OK();
+}
+
+Status PikaConf::TablePartitionsSanityCheck(const std::string& table_name,
+                                            const std::set<uint32_t>& partition_ids,
+                                            bool is_add) {
+  RWLock l(&rwlock_, false);
+  uint32_t table_index = 0;
+  Status s = InternalGetTargetTable(table_name, &table_index);
+  if (!s.ok()) {
+    return s;
+  }
+  // Sanity Check
+  for (const auto& id : partition_ids) {
+    if (id >= table_structs_[table_index].partition_num) {
+      return Status::Corruption("partition index out of range");
+    } else if (is_add && table_structs_[table_index].partition_ids.count(id) != 0) {
+      return Status::Corruption("partition : " + std::to_string(id) + " exist");
+    } else if (!is_add && table_structs_[table_index].partition_ids.count(id) == 0) {
+      return Status::Corruption("partition : " + std::to_string(id) + " not exist");
+    }
+  }
+  return Status::OK();
+}
+
+Status PikaConf::AddTablePartitions(const std::string& table_name,
+                                    const std::set<uint32_t>& partition_ids) {
+  Status s = TablePartitionsSanityCheck(table_name, partition_ids, true);
+  if (!s.ok()) {
+    return s;
+  }
+
+  RWLock l(&rwlock_, true);
+  uint32_t index = 0;
+  s = InternalGetTargetTable(table_name, &index);
+  if (s.ok()) {
+    for (const auto& id : partition_ids) {
+      table_structs_[index].partition_ids.insert(id);
+    }
+    s = local_meta_->StableSave(table_structs_);
+  }
+  return s;
+}
+
+Status PikaConf::RemoveTablePartitions(const std::string& table_name,
+                                       const std::set<uint32_t>& partition_ids) {
+  Status s = TablePartitionsSanityCheck(table_name, partition_ids, false);
+  if (!s.ok()) {
+    return s;
+  }
+
+  RWLock l(&rwlock_, true);
+  uint32_t index = 0;
+  s = InternalGetTargetTable(table_name, &index);
+  if (s.ok()) {
+    for (const auto& id : partition_ids) {
+      table_structs_[index].partition_ids.erase(id);
+    }
+    s = local_meta_->StableSave(table_structs_);
+  }
+  return s;
 }
 
 int PikaConf::Load()
@@ -25,19 +107,6 @@ int PikaConf::Load()
     return ret;
   }
 
-  // Mutable Section
-  std::string loglevel;
-  GetConfStr("loglevel", &loglevel);
-  slash::StringToLower(loglevel);
-  if (loglevel == "info") {
-    SetLogLevel(0);
-  } else if (loglevel == "error") {
-    SetLogLevel(1);
-  } else {
-    SetLogLevel(0);
-    fprintf(stderr, "Invalid loglevel value in conf file, only INFO or ERROR\n");
-    exit(-1);
-  }
   GetConfInt("timeout", &timeout_);
   if (timeout_ < 0) {
       timeout_ = 60; // 60s
@@ -60,9 +129,11 @@ int PikaConf::Load()
 
   std::string swe;
   GetConfStr("slowlog-write-errorlog", &swe);
-  slowlog_write_errorlog_ = swe == "yes" ? true : false;
+  slowlog_write_errorlog_.store(swe == "yes" ? true : false);
 
-  GetConfInt("slowlog-log-slower-than", &slowlog_log_slower_than_);
+  int tmp_slowlog_log_slower_than;
+  GetConfInt("slowlog-log-slower-than", &tmp_slowlog_log_slower_than);
+  slowlog_log_slower_than_.store(tmp_slowlog_log_slower_than);
   GetConfInt("slowlog-max-len", &slowlog_max_len_);
   if (slowlog_max_len_ == 0) {
     slowlog_max_len_ = 128;
@@ -73,7 +144,9 @@ int PikaConf::Load()
   for (auto& item : user_blacklist_) {
     slash::StringToLower(item);
   }
+
   GetConfStr("dump-path", &bgsave_path_);
+  bgsave_path_ = bgsave_path_.empty() ? "./dump/" : bgsave_path_;
   if (bgsave_path_[bgsave_path_.length() - 1] != '/') {
     bgsave_path_ += "/";
   }
@@ -92,25 +165,26 @@ int PikaConf::Load()
       expire_logs_days_ = 1;
   }
   GetConfStr("compression", &compression_);
+  // set slave read only true as default
   slave_read_only_ = true;
-  GetConfBool("slave-read-only", &slave_read_only_);
   GetConfInt("slave-priority", &slave_priority_);
 
   //
   // Immutable Sections
   //
   GetConfInt("port", &port_);
-  GetConfStr("double-master-ip", &double_master_ip_);
-  GetConfInt("double-master-port", &double_master_port_);
-  GetConfStr("double-master-server-id", &double_master_sid_);
-  if (double_master_sid_.empty()) {
-    double_master_sid_ = "0";
-  }
   GetConfStr("log-path", &log_path_);
-  GetConfStr("db-path", &db_path_);
+  log_path_ = log_path_.empty() ? "./log/" : log_path_;
   if (log_path_[log_path_.length() - 1] != '/') {
     log_path_ += "/";
   }
+  GetConfStr("db-path", &db_path_);
+  db_path_ = db_path_.empty() ? "./db/" : db_path_;
+  if (db_path_[db_path_.length() - 1] != '/') {
+    db_path_ += "/";
+  }
+  local_meta_->SetPath(db_path_);
+
   GetConfInt("thread-num", &thread_num_);
   if (thread_num_ <= 0) {
     thread_num_ = 12;
@@ -120,7 +194,7 @@ int PikaConf::Load()
   }
   GetConfInt("thread-pool-size", &thread_pool_size_);
   if (thread_pool_size_ <= 0) {
-    thread_pool_size_ = 8;
+    thread_pool_size_ = 12;
   }
   if (thread_pool_size_ > 24) {
     thread_pool_size_ = 24;
@@ -132,12 +206,38 @@ int PikaConf::Load()
   if (sync_thread_num_ > 24) {
     sync_thread_num_ = 24;
   }
-  GetConfInt("sync-buffer-size", &sync_buffer_size_);
-  if (sync_buffer_size_ <= 0) {
-    sync_buffer_size_ = 5;
-  } else if (sync_buffer_size_ > 100) {
-    sync_buffer_size_ = 100;
+
+  std::string instance_mode;
+  GetConfStr("instance-mode", &instance_mode);
+  classic_mode_.store(instance_mode.empty()
+          || !strcasecmp(instance_mode.data(), "classic"));
+
+  if (classic_mode_.load()) {
+    GetConfInt("databases", &databases_);
+    if (databases_ < 1 || databases_ > 8) {
+      LOG(FATAL) << "config databases error, limit [1 ~ 8], the actual is: "
+          << databases_;
+    }
+    for (int idx = 0; idx < databases_; ++idx) {
+      table_structs_.push_back({"db" + std::to_string(idx), 1, {0}});
+    }
+  } else {
+    GetConfInt("default-slot-num", &default_slot_num_);
+    if (default_slot_num_ <= 0) {
+      LOG(FATAL) << "config default-slot-num error,"
+          << " it should greater than zero, the actual is: "
+          << default_slot_num_;
+    }
+    std::string pika_meta_path = db_path_ + kPikaMeta;
+    if (!slash::FileExists(pika_meta_path)) {
+      local_meta_->StableSave({{"db0", static_cast<uint32_t>(default_slot_num_), {}}});
+    }
+    Status s = local_meta_->ParseMeta(&table_structs_);
+    if (!s.ok()) {
+      LOG(FATAL) << "parse meta file error";
+    }
   }
+  default_table_ = table_structs_[0].table_name;
 
   compact_cron_ = "";
   GetConfStr("compact-cron", &compact_cron_);
@@ -191,13 +291,25 @@ int PikaConf::Load()
   // write_buffer_size
   GetConfInt64("write-buffer-size", &write_buffer_size_);
   if (write_buffer_size_ <= 0 ) {
-      write_buffer_size_ = 4194304; // 40M
+    write_buffer_size_ = 268435456;       // 256Mb
+  }
+
+  // max_write_buffer_size
+  GetConfInt64("max-write-buffer-size", &max_write_buffer_size_);
+  if (max_write_buffer_size_ <= 0) {
+    max_write_buffer_size_ = 10737418240;  // 10Gb
+  }
+
+  // max_client_response_size
+  GetConfInt64("max-client-response-size", &max_client_response_size_);
+  if (max_client_response_size_ <= 0) {
+    max_client_response_size_ = 1073741824; // 1Gb
   }
 
   // target_file_size_base
   GetConfInt("target-file-size-base", &target_file_size_base_);
   if (target_file_size_base_ <= 0) {
-      target_file_size_base_ = 1048576; // 10M
+    target_file_size_base_ = 1048576;     // 10Mb
   }
 
   max_cache_statistic_keys_ = 0;
@@ -286,13 +398,9 @@ int PikaConf::Load()
   }
   GetConfStr("pidfile", &pidfile_);
 
-  // slot migrate
-  std::string smgrt;
-  GetConfStr("slotmigrate", &smgrt);
-  slotmigrate_ =  (smgrt == "yes") ? true : false;
-
   // db sync
   GetConfStr("db-sync-path", &db_sync_path_);
+  db_sync_path_ = db_sync_path_.empty() ? "./dbsync/" : db_sync_path_;
   if (db_sync_path_[db_sync_path_.length() - 1] != '/') {
     db_sync_path_ += "/";
   }
@@ -317,63 +425,34 @@ void PikaConf::TryPushDiffCommands(const std::string& command, const std::string
 }
 
 int PikaConf::ConfigRewrite() {
-  {
-  RWLock l(&rwlock_, false);
+  std::string userblacklist = suser_blacklist();
 
-  SetConfInt("port", port_);
-  SetConfInt("thread-num", thread_num_);
-  SetConfInt("thread-pool-size", thread_pool_size_);
-  SetConfInt("sync-thread-num", sync_thread_num_);
-  SetConfInt("sync-buffer-size", sync_buffer_size_);
-  SetConfStr("log-path", log_path_);
-  SetConfStr("loglevel", log_level_ ? "ERROR" : "INFO");
-  SetConfStr("db-path", db_path_);
-  SetConfStr("db-sync-path", db_sync_path_);
-  SetConfInt("db-sync-speed", db_sync_speed_);
-  SetConfInt64("write-buffer-size", write_buffer_size_);
+  RWLock l(&rwlock_, true);
+  // Only set value for config item that can be config set.
   SetConfInt("timeout", timeout_);
-  SetConfStr("server-id", server_id_);
   SetConfStr("requirepass", requirepass_);
   SetConfStr("masterauth", masterauth_);
   SetConfStr("userpass", userpass_);
-  SetConfStr("userblacklist", suser_blacklist());
+  SetConfStr("userblacklist", userblacklist);
   SetConfStr("dump-prefix", bgsave_prefix_);
-  SetConfStr("daemonize", daemonize_ ? "yes" : "no");
-  SetConfStr("slotmigrate", slotmigrate_ ? "yes" : "no");
-  SetConfStr("dump-path", bgsave_path_);
-  SetConfInt("dump-expire", expire_dump_days_);
-  SetConfStr("pidfile", pidfile_);
   SetConfInt("maxclients", maxclients_);
-  SetConfInt("target-file-size-base", target_file_size_base_);
+  SetConfInt("dump-expire", expire_dump_days_);
   SetConfInt("expire-logs-days", expire_logs_days_);
   SetConfInt("expire-logs-nums", expire_logs_nums_);
   SetConfInt("root-connection-num", root_connection_num_);
-  SetConfStr("slowlog-write-errorlog", slowlog_write_errorlog_ ? "yes" : "no");
-  SetConfInt("slowlog-log-slower-than", slowlog_log_slower_than_);
+  SetConfStr("slowlog-write-errorlog", slowlog_write_errorlog_.load() ? "yes" : "no");
+  SetConfInt("slowlog-log-slower-than", slowlog_log_slower_than_.load());
   SetConfInt("slowlog-max-len", slowlog_max_len_);
-  SetConfStr("slave-read-only", slave_read_only_ ? "yes" : "no");
-  SetConfStr("compact-cron", compact_cron_);
-  SetConfStr("compact-interval", compact_interval_);
-  SetConfStr("network-interface", network_interface_);
-  SetConfStr("slaveof", slaveof_);
-  SetConfInt("slave-priority", slave_priority_);
-
   SetConfStr("write-binlog", write_binlog_ ? "yes" : "no");
-  SetConfInt("binlog-file-size", binlog_file_size_);
-  SetConfStr("compression", compression_);
   SetConfInt("max-cache-statistic-keys", max_cache_statistic_keys_);
   SetConfInt("small-compaction-threshold", small_compaction_threshold_);
-  SetConfInt("max-background-flushes", max_background_flushes_);
-  SetConfInt("max-background-compactions", max_background_compactions_);
-  SetConfInt("max-cache-files", max_cache_files_);
-  SetConfInt("max-bytes-for-level-multiplier", max_bytes_for_level_multiplier_);
-  SetConfInt64("block-size", block_size_);
-  SetConfInt64("block-cache", block_cache_);
-  SetConfStr("share-block-cache", share_block_cache_ ? "yes" : "no");
-  SetConfStr("cache-index-and-filter-blocks", cache_index_and_filter_blocks_ ? "yes" : "no");
-  SetConfStr("optimize-filters-for-hits", optimize_filters_for_hits_ ? "yes" : "no");
-  SetConfStr("level-compaction-dynamic-level-bytes", level_compaction_dynamic_level_bytes_ ? "yes" : "no");
-  }
+  SetConfInt("max-client-response-size", max_client_response_size_);
+  SetConfInt("db-sync-speed", db_sync_speed_);
+  SetConfStr("compact-cron", compact_cron_);
+  SetConfStr("compact-interval", compact_interval_);
+  SetConfInt("slave-priority", slave_priority_);
+  // slaveof config item is special
+  SetConfStr("slaveof", slaveof_);
 
   if (!diff_commands_.empty()) {
     std::vector<slash::BaseConf::Rep::ConfItem> filtered_items;
@@ -390,7 +469,6 @@ int PikaConf::ConfigRewrite() {
         PushConfItem(item);
       }
     }
-    RWLock l(&rwlock_, true);
     diff_commands_.clear();
   }
   return WriteBack();
